@@ -1,0 +1,38 @@
+diff --git a/host/rpi_native_cli/include/Stream.h b/host/rpi_native_cli/include/Stream.h
+--- a/host/rpi_native_cli/include/Stream.h
++++ b/host/rpi_native_cli/include/Stream.h
+@@ -60,10 +60,34 @@ public:
+ 		return write(buf);
+ 	}
+ 
++	size_t print(int n, int base) {
++		char buf[32];
++		if (base == 16) std::snprintf(buf, sizeof(buf), "%x", n);
++		else std::snprintf(buf, sizeof(buf), "%d", n);
++		return write(buf);
++	}
++
++	size_t print(unsigned int n, int base) {
++		char buf[32];
++		if (base == 16) std::snprintf(buf, sizeof(buf), "%x", n);
++		else std::snprintf(buf, sizeof(buf), "%u", n);
++		return write(buf);
++	}
++
++	size_t print(float n, int digits) {
++		return print(static_cast<double>(n), digits);
++	}
++
++	size_t print(double n, int digits) {
++		char buf[64];
++		std::snprintf(buf, sizeof(buf), "%.*f", digits, n);
++		return write(buf);
++	}
++
+ 	size_t print(float n) {
+ 		char buf[64];
+ 		std::snprintf(buf, sizeof(buf), "%g", static_cast<double>(n));
+ 		return write(buf);
+ 	}
+ 
+ 	size_t println() { return write("\n"); }
