@@ -20,6 +20,7 @@ public:
 
   bool begin();
   void loop();
+  bool waitForEvent(int timeout_ms);
   const std::string& getLastError() const { return last_error_; }
   const std::string& getSocketDir() const { return socket_dir_; }
   std::vector<std::string> getEndpointNames() const;

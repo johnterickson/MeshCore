@@ -62,6 +62,14 @@ TEST_F(KissRadioTest, DisablesModemTxSchedulingAtStartup) {
       KISS_FEND, KISS_CMD_FULLDUPLEX, 0x01, KISS_FEND}));
 }
 
+TEST_F(KissRadioTest, WaitsForSocketReadiness) {
+  KissRadio radio(sockets[0]);
+
+  EXPECT_FALSE(radio.waitForEvent(0));
+  writeBytes(sockets[1], {KISS_FEND});
+  EXPECT_TRUE(radio.waitForEvent(100));
+}
+
 TEST(KissRadioUnixSocketTest, ConnectsToBrokerEndpoint) {
   const std::string path = "/tmp/meshcore-kiss-radio-test-" + std::to_string(getpid()) + ".sock";
   const int server = socket(AF_UNIX, SOCK_STREAM, 0);

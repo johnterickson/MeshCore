@@ -8,6 +8,7 @@
 #include <unordered_set>
 
 #include <fcntl.h>
+#include <poll.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
 #include <sys/un.h>
@@ -193,6 +194,20 @@ void KissBroker::loop() {
   expireActiveTx();
   flushPhysical();
   flushClients();
+}
+
+bool KissBroker::waitForEvent(int timeout_ms) {
+  std::vector<pollfd> descriptors;
+  descriptors.reserve(1 + endpoints_.size() * 2);
+  descriptors.push_back({physical_fd_, static_cast<short>(POLLIN | (physical_output_.empty() ? 0 : POLLOUT)), 0});
+  for (const Endpoint& endpoint : endpoints_) {
+    descriptors.push_back({endpoint.server_fd, POLLIN, 0});
+    if (endpoint.client_fd >= 0) {
+      descriptors.push_back({endpoint.client_fd,
+                             static_cast<short>(POLLIN | (endpoint.output.empty() ? 0 : POLLOUT)), 0});
+    }
+  }
+  return poll(descriptors.data(), descriptors.size(), timeout_ms) > 0;
 }
 
 void KissBroker::acceptClients() {

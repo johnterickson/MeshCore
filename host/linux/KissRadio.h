@@ -21,6 +21,7 @@ public:
 
   void begin() override;
   void loop() override;
+  bool waitForEvent(int timeout_ms);
   int recvRaw(uint8_t* bytes, int size) override;
   uint32_t getEstAirtimeFor(int len_bytes) override;
   float packetScore(float snr, int packet_len) override;

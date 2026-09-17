@@ -6,6 +6,7 @@
 #include <cstring>
 
 #include <fcntl.h>
+#include <poll.h>
 #include <sys/socket.h>
 #include <sys/un.h>
 #include <termios.h>
@@ -176,6 +177,15 @@ void KissRadio::loop() {
     }
     break;
   }
+}
+
+bool KissRadio::waitForEvent(int timeout_ms) {
+  if (fd_ < 0) return false;
+  pollfd descriptor{};
+  descriptor.fd = fd_;
+  descriptor.events = POLLIN;
+  if (!output_.empty()) descriptor.events |= POLLOUT;
+  return poll(&descriptor, 1, timeout_ms) > 0;
 }
 
 void KissRadio::consumeByte(uint8_t byte) {

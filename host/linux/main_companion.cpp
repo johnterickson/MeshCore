@@ -99,7 +99,7 @@ int main(int argc, char** argv) {
     tcp_interface.loop();
     sensors.loop();
     rtc_clock.tick();
-    std::this_thread::sleep_for(std::chrono::milliseconds(2));
+    radio_driver.waitForEvent(100);
   }
   return 0;
 }

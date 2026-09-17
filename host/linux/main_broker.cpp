@@ -62,7 +62,7 @@ int main(int argc, char** argv) {
 
   while (!stop_requested.load()) {
     broker.loop();
-    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    broker.waitForEvent(100);
   }
   return 0;
 }
