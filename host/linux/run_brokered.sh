@@ -66,9 +66,13 @@ pids+=("$!")
 for ((instance = 1; instance <= room_count; instance++)); do
   room_data="$data_root/meshcore-room-server"
   if ((instance > 1)); then room_data="${room_data}-$instance"; fi
+  room_args=(--device "unix:$socket_dir/room-$instance.sock")
+  if [[ ! -f "$room_data/prefs.json" ]]; then
+    room_args+=(--name "LinuxRoom-$instance")
+  fi
   MESHCORE_DATA_DIR="$room_data" \
     .pio/build/native_linux_kiss_room_server/program \
-    --device "unix:$socket_dir/room-$instance.sock" --name "LinuxRoom-$instance" &
+    "${room_args[@]}" &
   pids+=("$!")
 done
 
