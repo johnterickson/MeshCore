@@ -36,14 +36,18 @@ speed_t baudFlag(int baud) {
 } // namespace
 
 KissBroker::KissBroker(std::string device, int baud, std::string socket_dir,
-                       std::vector<std::string> endpoint_names)
-    : device_(std::move(device)), baud_(baud), socket_dir_(std::move(socket_dir)) {
+                       std::vector<std::string> endpoint_names,
+                       std::chrono::milliseconds reconnect_interval)
+    : device_(std::move(device)), baud_(baud), socket_dir_(std::move(socket_dir)),
+      reconnect_interval_(reconnect_interval) {
   endpoints_.reserve(endpoint_names.size());
   for (std::string& name : endpoint_names) {
     Endpoint endpoint;
     endpoint.name = std::move(name);
     endpoints_.push_back(std::move(endpoint));
   }
+  rememberPhysicalConfig({KISS_CMD_TXDELAY, 0});
+  rememberPhysicalConfig({KISS_CMD_FULLDUPLEX, 1});
 }
 
 KissBroker::~KissBroker() {
@@ -56,7 +60,15 @@ KissBroker::~KissBroker() {
 }
 
 bool KissBroker::begin() {
-  return openPhysical() && createEndpoints();
+  if (baudFlag(baud_) == 0) {
+    last_error_ = "unsupported baud rate";
+    return false;
+  }
+  if (!createEndpoints()) return false;
+  if (!openPhysical()) {
+    next_reconnect_at_ = std::chrono::steady_clock::now() + reconnect_interval_;
+  }
+  return true;
 }
 
 std::vector<std::string> KissBroker::getEndpointNames() const {
@@ -67,15 +79,16 @@ std::vector<std::string> KissBroker::getEndpointNames() const {
 }
 
 bool KissBroker::openPhysical() {
-  physical_fd_ = open(device_.c_str(), O_RDWR | O_NOCTTY | O_NONBLOCK);
-  if (physical_fd_ < 0) {
+  const int fd = open(device_.c_str(), O_RDWR | O_NOCTTY | O_NONBLOCK);
+  if (fd < 0) {
     last_error_ = "open " + device_ + ": " + std::strerror(errno);
     return false;
   }
   const speed_t speed = baudFlag(baud_);
   termios settings{};
-  if (speed == 0 || tcgetattr(physical_fd_, &settings) != 0) {
+  if (speed == 0 || tcgetattr(fd, &settings) != 0) {
     last_error_ = speed == 0 ? "unsupported baud rate" : std::strerror(errno);
+    close(fd);
     return false;
   }
   cfmakeraw(&settings);
@@ -86,12 +99,66 @@ bool KissBroker::openPhysical() {
   settings.c_cflag = (settings.c_cflag & ~CSIZE) | CS8;
   settings.c_cc[VMIN] = 0;
   settings.c_cc[VTIME] = 0;
-  if (tcsetattr(physical_fd_, TCSANOW, &settings) != 0) {
+  if (tcsetattr(fd, TCSANOW, &settings) != 0) {
     last_error_ = std::strerror(errno);
+    close(fd);
     return false;
   }
-  tcflush(physical_fd_, TCIOFLUSH);
+  tcflush(fd, TCIOFLUSH);
+  physical_fd_ = fd;
+  physical_decoder_ = {};
+  physical_output_.clear();
+  physical_output_offset_ = 0;
+  last_error_.clear();
+  replayPhysicalConfig();
   return true;
+}
+
+void KissBroker::disconnectPhysical(const std::string& error) {
+  if (physical_fd_ >= 0) close(physical_fd_);
+  physical_fd_ = -1;
+  physical_decoder_ = {};
+  physical_output_.clear();
+  physical_output_offset_ = 0;
+  last_error_ = error;
+  failPendingTx();
+  next_reconnect_at_ = std::chrono::steady_clock::now() + reconnect_interval_;
+}
+
+void KissBroker::retryPhysical() {
+  if (physical_fd_ >= 0 || std::chrono::steady_clock::now() < next_reconnect_at_) return;
+  if (!openPhysical()) {
+    next_reconnect_at_ = std::chrono::steady_clock::now() + reconnect_interval_;
+  }
+}
+
+void KissBroker::failPendingTx() {
+  const std::vector<uint8_t> failed = encodeFrame({KISS_CMD_SETHARDWARE, HW_RESP_TX_DONE, 0x00});
+  if (active_tx_endpoint_ >= 0) {
+    queueClient(static_cast<size_t>(active_tx_endpoint_), failed);
+  }
+  for (const PendingTx& pending : pending_tx_) queueClient(pending.endpoint, failed);
+  active_tx_endpoint_ = -1;
+  active_tx_frame_.clear();
+  pending_tx_.clear();
+}
+
+void KissBroker::rememberPhysicalConfig(const std::vector<uint8_t>& frame) {
+  if (frame.empty()) return;
+  const uint8_t command = frame[0] & 0x0F;
+  uint16_t key = command;
+  if (command == KISS_CMD_SETHARDWARE) {
+    if (frame.size() < 2 || (frame[1] != HW_CMD_SET_RADIO && frame[1] != HW_CMD_SET_TX_POWER &&
+                             frame[1] != HW_CMD_SET_SIGNAL_REPORT)) return;
+    key = static_cast<uint16_t>(0x100 | frame[1]);
+  } else if (command < KISS_CMD_TXDELAY || command > KISS_CMD_FULLDUPLEX) {
+    return;
+  }
+  physical_config_[key] = encodeFrame(frame);
+}
+
+void KissBroker::replayPhysicalConfig() {
+  for (const auto& config : physical_config_) physical_output_.push_back(config.second);
 }
 
 bool KissBroker::createEndpoints() {
@@ -188,6 +255,7 @@ bool KissBroker::consumeByte(FrameDecoder& decoder, uint8_t byte, std::vector<ui
 }
 
 void KissBroker::loop() {
+  retryPhysical();
   acceptClients();
   readPhysical();
   readClients();
@@ -199,7 +267,10 @@ void KissBroker::loop() {
 bool KissBroker::waitForEvent(int timeout_ms) {
   std::vector<pollfd> descriptors;
   descriptors.reserve(1 + endpoints_.size() * 2);
-  descriptors.push_back({physical_fd_, static_cast<short>(POLLIN | (physical_output_.empty() ? 0 : POLLOUT)), 0});
+  const bool has_physical = physical_fd_ >= 0;
+  if (has_physical) {
+    descriptors.push_back({physical_fd_, static_cast<short>(POLLIN | (physical_output_.empty() ? 0 : POLLOUT)), 0});
+  }
   for (const Endpoint& endpoint : endpoints_) {
     descriptors.push_back({endpoint.server_fd, POLLIN, 0});
     if (endpoint.client_fd >= 0) {
@@ -207,7 +278,12 @@ bool KissBroker::waitForEvent(int timeout_ms) {
                              static_cast<short>(POLLIN | (endpoint.output.empty() ? 0 : POLLOUT)), 0});
     }
   }
-  return poll(descriptors.data(), descriptors.size(), timeout_ms) > 0;
+  const int result = poll(descriptors.data(), descriptors.size(), timeout_ms);
+  if (result > 0 && has_physical &&
+      (descriptors[0].revents & (POLLERR | POLLHUP | POLLNVAL)) != 0) {
+    disconnectPhysical("KISS device disconnected");
+  }
+  return result > 0;
 }
 
 void KissBroker::acceptClients() {
@@ -224,10 +300,15 @@ void KissBroker::acceptClients() {
 }
 
 void KissBroker::readPhysical() {
+  if (physical_fd_ < 0) return;
   uint8_t buffer[512];
   while (true) {
     const ssize_t count = read(physical_fd_, buffer, sizeof(buffer));
-    if (count <= 0) return;
+    if (count == 0 || (count < 0 && (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR))) return;
+    if (count < 0) {
+      disconnectPhysical("read " + device_ + ": " + std::strerror(errno));
+      return;
+    }
     for (ssize_t i = 0; i < count; ++i) {
       std::vector<uint8_t> frame;
       if (consumeByte(physical_decoder_, buffer[i], frame)) handlePhysicalFrame(frame);
@@ -293,7 +374,12 @@ void KissBroker::handleClientFrame(size_t endpoint, const std::vector<uint8_t>& 
   if (frame.empty()) return;
   const std::vector<uint8_t> encoded = encodeFrame(frame);
   if ((frame[0] & 0x0F) != KISS_CMD_DATA) {
+    rememberPhysicalConfig(frame);
     queuePhysical(encoded);
+    return;
+  }
+  if (physical_fd_ < 0) {
+    queueClient(endpoint, encodeFrame({KISS_CMD_SETHARDWARE, HW_RESP_TX_DONE, 0x00}));
     return;
   }
   if (active_tx_endpoint_ < 0) {
@@ -353,6 +439,7 @@ void KissBroker::echoActiveTxToPeers() {
 }
 
 void KissBroker::flushPhysical() {
+  if (physical_fd_ < 0) return;
   while (!physical_output_.empty()) {
     const std::vector<uint8_t>& frame = physical_output_.front();
     const ssize_t count = write(physical_fd_, frame.data() + physical_output_offset_,
@@ -364,6 +451,9 @@ void KissBroker::flushPhysical() {
         physical_output_offset_ = 0;
       }
       continue;
+    }
+    if (count < 0 && errno != EAGAIN && errno != EWOULDBLOCK && errno != EINTR) {
+      disconnectPhysical("write " + device_ + ": " + std::strerror(errno));
     }
     return;
   }

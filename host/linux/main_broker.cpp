@@ -55,14 +55,23 @@ int main(int argc, char** argv) {
     std::cerr << "Failed to start KISS broker: " << broker.getLastError() << "\n";
     return 1;
   }
-  std::cout << "KISS broker using " << device << "\n";
+  std::cout << "KISS broker using " << device;
+  if (!broker.isPhysicalConnected()) std::cout << " (waiting for device)";
+  std::cout << "\n";
   for (const std::string& name : broker.getEndpointNames()) {
     std::cout << "  " << name << ": unix:" << broker.getSocketDir() << "/" << name << ".sock\n";
   }
 
+  bool was_connected = broker.isPhysicalConnected();
   while (!stop_requested.load()) {
     broker.loop();
     broker.waitForEvent(100);
+    const bool is_connected = broker.isPhysicalConnected();
+    if (is_connected != was_connected) {
+      if (is_connected) std::cout << "KISS device reconnected: " << device << "\n";
+      else std::cerr << "KISS device disconnected: " << device << "\n";
+      was_connected = is_connected;
+    }
   }
   return 0;
 }

@@ -6,6 +6,7 @@
 #include <LittleFS.h>
 
 #include "KissRadio.h"
+#include "LinuxRTCClock.h"
 
 #define RP2040_PLATFORM 1
 
@@ -19,8 +20,6 @@ public:
   bool isExternalPowered() override { return true; }
   uint16_t getBootVoltage() override { return 5000; }
 };
-
-class LinuxRTCClock : public VolatileRTCClock {};
 
 extern LinuxBoard board;
 extern KissRadio radio_driver;

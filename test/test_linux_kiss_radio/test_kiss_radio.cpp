@@ -4,6 +4,7 @@
 #include <cerrno>
 #include <cstdint>
 #include <cstring>
+#include <ctime>
 #include <vector>
 
 #include <fcntl.h>
@@ -12,6 +13,7 @@
 #include <unistd.h>
 
 #include "KissRadio.h"
+#include "LinuxRTCClock.h"
 
 namespace {
 
@@ -68,6 +70,15 @@ TEST_F(KissRadioTest, WaitsForSocketReadiness) {
   EXPECT_FALSE(radio.waitForEvent(0));
   writeBytes(sockets[1], {KISS_FEND});
   EXPECT_TRUE(radio.waitForEvent(100));
+}
+
+TEST(LinuxRTCClockTest, StartsAtSystemTime) {
+  const std::time_t before = std::time(nullptr);
+  LinuxRTCClock clock;
+  const std::time_t after = std::time(nullptr);
+
+  EXPECT_GE(clock.getCurrentTime(), static_cast<uint32_t>(before));
+  EXPECT_LE(clock.getCurrentTime(), static_cast<uint32_t>(after));
 }
 
 TEST(KissRadioUnixSocketTest, ConnectsToBrokerEndpoint) {
