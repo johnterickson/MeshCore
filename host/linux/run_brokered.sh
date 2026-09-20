@@ -8,6 +8,8 @@ companion_port="${MESHCORE_COMPANION_PORT:-5000}"
 room_count="${MESHCORE_ROOM_COUNT:-1}"
 companion_count="${MESHCORE_COMPANION_COUNT:-1}"
 socket_dir="${MESHCORE_KISS_SOCKET_DIR:-/tmp/meshcore-kiss}"
+pty_dir="${MESHCORE_PTY_DIR:-/tmp/meshcore-pty}"
+pty_group="${MESHCORE_PTY_GROUP:-dialout}"
 data_root="${MESHCORE_DATA_ROOT:-$HOME/.local/share}"
 pids=()
 
@@ -44,6 +46,8 @@ done
 
 mkdir -p "$socket_dir"
 rm -f "$socket_dir"/*.sock
+mkdir -p "$pty_dir"
+rm -f "$pty_dir"/repeater "$pty_dir"/room-* "$pty_dir"/companion-*
 .pio/build/native_linux_kiss_broker/program "${broker_args[@]}" &
 pids+=("$!")
 
@@ -60,13 +64,15 @@ done
 
 MESHCORE_DATA_DIR="$data_root/meshcore-repeater" \
   .pio/build/native_linux_kiss_repeater/program \
-  --device "unix:$socket_dir/repeater.sock" &
+  --device "unix:$socket_dir/repeater.sock" \
+  --pty "$pty_dir/repeater" --pty-group "$pty_group" &
 pids+=("$!")
 
 for ((instance = 1; instance <= room_count; instance++)); do
   room_data="$data_root/meshcore-room-server"
   if ((instance > 1)); then room_data="${room_data}-$instance"; fi
-  room_args=(--device "unix:$socket_dir/room-$instance.sock")
+  room_args=(--device "unix:$socket_dir/room-$instance.sock"
+             --pty "$pty_dir/room-$instance" --pty-group "$pty_group")
   if [[ ! -f "$room_data/prefs.json" ]]; then
     room_args+=(--name "LinuxRoom-$instance")
   fi
@@ -83,11 +89,13 @@ for ((instance = 1; instance <= companion_count; instance++)); do
   MESHCORE_DATA_DIR="$companion_data" \
     .pio/build/native_linux_kiss_companion/program \
     --device "unix:$socket_dir/companion-$instance.sock" --port "$instance_port" \
-    --name "LinuxCompanion-$instance" &
+    --name "LinuxCompanion-$instance" \
+    --pty "$pty_dir/companion-$instance" --pty-group "$pty_group" &
   pids+=("$!")
 done
 
 echo "Brokered MeshCore stack running with $room_count room(s) and $companion_count companion(s)"
+echo "Role PTYs: $pty_dir"
 if ((companion_count > 0)); then
   echo "Companion TCP ports: $companion_port-$((companion_port + companion_count - 1))"
 fi

@@ -1,4 +1,5 @@
 #include "target.h"
+#include "LinuxTextConsole.h"
 
 #include <helpers/IdentityStore.h>
 #include <helpers/SimpleMeshTables.h>
@@ -23,7 +24,8 @@ void handleSignal(int) {
 }
 
 void printUsage() {
-  std::cout << "Usage: meshcore-linux-room-server [--device PATH] [--baud RATE] [--name NAME]\n";
+  std::cout << "Usage: meshcore-linux-room-server [--device PATH] [--baud RATE] [--name NAME]"
+               " [--pty PATH] [--pty-group GROUP]\n";
 }
 
 } // namespace
@@ -36,6 +38,8 @@ MyMesh the_mesh(board, radio_driver, millis_clock, fast_rng, rtc_clock, tables);
 int main(int argc, char** argv) {
   std::string device = "/dev/ttyUSB0";
   std::string name;
+  std::string pty_path;
+  std::string pty_group = "dialout";
   int baud = 115200;
   for (int i = 1; i < argc; ++i) {
     const std::string argument(argv[i]);
@@ -45,6 +49,10 @@ int main(int argc, char** argv) {
       baud = std::stoi(argv[++i]);
     } else if (argument == "--name" && i + 1 < argc) {
       name = argv[++i];
+    } else if (argument == "--pty" && i + 1 < argc) {
+      pty_path = argv[++i];
+    } else if (argument == "--pty-group" && i + 1 < argc) {
+      pty_group = argv[++i];
     } else if (argument == "--help") {
       printUsage();
       return 0;
@@ -84,9 +92,17 @@ int main(int argc, char** argv) {
     the_mesh.savePrefs();
   }
   the_mesh.sendSelfAdvertisement(16000, false);
+  LinuxTextConsole console;
+  if (!pty_path.empty() && !console.begin(pty_path, pty_group)) {
+    std::cerr << "Failed to create PTY " << pty_path << ": " << console.getLastError() << "\n";
+    return 1;
+  }
   std::cout << "MeshCore room server using " << device << " at " << baud << " baud\n";
 
   while (!stop_requested.load()) {
+    console.loop([](char* command, char* reply) {
+      the_mesh.handleCommand(0, command, reply);
+    });
     the_mesh.loop();
     sensors.loop();
     rtc_clock.tick();

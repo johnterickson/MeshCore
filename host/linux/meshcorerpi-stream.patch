@@ -36,3 +36,94 @@ diff --git a/host/rpi_native_cli/include/Stream.h b/host/rpi_native_cli/include/
  	}
  
  	size_t println() { return write("\n"); }
+diff --git a/host/rpi_native_cli/include/Arduino.h b/host/rpi_native_cli/include/Arduino.h
+--- a/host/rpi_native_cli/include/Arduino.h
++++ b/host/rpi_native_cli/include/Arduino.h
+@@ -14,5 +14,9 @@
+ #include <random>
+ #include <string>
+ #include <thread>
++#include <vector>
++
++#include <sys/ioctl.h>
++#include <unistd.h>
+-
++
+ using std::size_t;
+@@ -109,4 +113,15 @@
+ class LinuxSerial : public Stream {
+   std::mutex write_mutex;
++  int fd = -1;
++
++  void writeAttached(const uint8_t* src, size_t len) {
++    if (fd < 0) return;
++    size_t offset = 0;
++    while (offset < len) {
++      const ssize_t count = ::write(fd, src + offset, len - offset);
++      if (count <= 0) return;
++      offset += static_cast<size_t>(count);
++    }
++  }
+-
++
+ public:
+@@ -113,9 +128,21 @@
+   void begin(unsigned long) {}
+-
++  void attach(int file_descriptor) { fd = file_descriptor; }
++
+-  int available() override { return 0; }
+-  int read() override { return -1; }
++  int available() override {
++    if (fd < 0) return 0;
++    int count = 0;
++    return ioctl(fd, FIONREAD, &count) == 0 ? count : 0;
++  }
++
++  int read() override {
++    if (fd < 0) return -1;
++    uint8_t byte;
++    return ::read(fd, &byte, 1) == 1 ? byte : -1;
++  }
+-
++
+   size_t write(uint8_t c) override {
+     std::lock_guard<std::mutex> lock(write_mutex);
+-    return std::fputc(static_cast<int>(c), stdout) == EOF ? 0 : 1;
++    const size_t written = std::fputc(static_cast<int>(c), stdout) == EOF ? 0 : 1;
++    writeAttached(&c, 1);
++    return written;
+   }
+@@ -122,15 +149,28 @@
+-
++
+   size_t write(const uint8_t* src, size_t len) override {
+     std::lock_guard<std::mutex> lock(write_mutex);
+-    return std::fwrite(src, 1, len, stdout);
++    const size_t written = std::fwrite(src, 1, len, stdout);
++    writeAttached(src, len);
++    return written;
+   }
+-
++
+   int printf(const char* fmt, ...) {
+     std::lock_guard<std::mutex> lock(write_mutex);
+     va_list args;
+     va_start(args, fmt);
+-    int n = std::vfprintf(stdout, fmt, args);
++    va_list attached_args;
++    va_copy(attached_args, args);
++    const int n = std::vfprintf(stdout, fmt, args);
+     va_end(args);
+     std::fflush(stdout);
++    const int attached_len = std::vsnprintf(nullptr, 0, fmt, attached_args);
++    va_end(attached_args);
++    if (attached_len > 0) {
++      std::vector<char> buffer(static_cast<size_t>(attached_len) + 1);
++      va_start(args, fmt);
++      std::vsnprintf(buffer.data(), buffer.size(), fmt, args);
++      va_end(args);
++      writeAttached(reinterpret_cast<const uint8_t*>(buffer.data()), static_cast<size_t>(attached_len));
++    }
+     return n;
+   }

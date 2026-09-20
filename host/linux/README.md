@@ -68,4 +68,23 @@ Role state remains independent:
 
 Companion instances listen on consecutive TCP ports beginning at 5000. For example, two companions use ports 5000 and 5001. Override the first port with `MESHCORE_COMPANION_PORT`; override the socket or data roots with `MESHCORE_KISS_SOCKET_DIR` and `MESHCORE_DATA_ROOT`.
 
+Each role also gets a stable pseudo-terminal under `/tmp/meshcore-pty`:
+
+```text
+/tmp/meshcore-pty/repeater
+/tmp/meshcore-pty/room-1
+/tmp/meshcore-pty/companion-1
+```
+
+Repeater and room-server PTYs are text consoles. They accept the firmware CLI commands terminated by carriage return and mirror packet logs and command responses. For example, configure MeshCoreToMQTT to use the repeater without giving it ownership of the physical modem:
+
+```toml
+[serial]
+ports = ["/tmp/meshcore-pty/repeater"]
+```
+
+Companion PTYs carry the binary companion protocol using the same framing as the TCP interface: inbound frames begin with `<` and outbound frames with `>`, followed by a little-endian 16-bit payload length. They are not text consoles. Companion TCP remains available alongside the PTY.
+
+PTY slaves are mode `0660` and use the `dialout` group by default. Override the path root with `MESHCORE_PTY_DIR` or the group with `MESHCORE_PTY_GROUP`. Treat text consoles as privileged interfaces because CLI commands can read or change node configuration, including private keys.
+
 Instances advertise as `LinuxRoom-1`, `LinuxRoom-2`, `LinuxCompanion-1`, and so on. Each instance has its own persisted public/private identity. Room servers keep their upstream default of forwarding disabled. They still serve room clients; use `set repeat on` if a room identity should also repeat transit traffic.
