@@ -117,6 +117,13 @@ TEST(KissBrokerTest, ReconnectsPhysicalDeviceWithoutDisconnectingRole) {
     ASSERT_EQ(connect(role, reinterpret_cast<sockaddr*>(&address), sizeof(address)), 0);
     broker.loop();
 
+    const std::vector<uint8_t> gain_config = {
+      KISS_FEND, KISS_CMD_SETHARDWARE, HW_CMD_SET_RADIO_GAIN,
+      RADIO_GAIN_RX_BOOSTED | RADIO_GAIN_FEM_RX, KISS_FEND};
+    writeAll(role, gain_config);
+    broker.loop();
+    EXPECT_EQ(readPhysicalAvailable(first.master), gain_config);
+
     const std::vector<uint8_t> first_packet = {KISS_FEND, KISS_CMD_DATA, 0x11, KISS_FEND};
     writeAll(first.master, first_packet);
     ASSERT_TRUE(broker.waitForEvent(100));
@@ -141,7 +148,11 @@ TEST(KissBrokerTest, ReconnectsPhysicalDeviceWithoutDisconnectingRole) {
 
     broker.loop();
     ASSERT_TRUE(broker.isPhysicalConnected()) << broker.getLastError();
-    drainPseudoTerminal(second.master);
+    EXPECT_EQ(readPhysicalAvailable(second.master), (std::vector<uint8_t>{
+      KISS_FEND, KISS_CMD_TXDELAY, 0x00, KISS_FEND,
+      KISS_FEND, KISS_CMD_FULLDUPLEX, 0x01, KISS_FEND,
+      KISS_FEND, KISS_CMD_SETHARDWARE, HW_CMD_SET_RADIO_GAIN,
+      RADIO_GAIN_RX_BOOSTED | RADIO_GAIN_FEM_RX, KISS_FEND}));
 
     const std::vector<uint8_t> second_packet = {KISS_FEND, KISS_CMD_DATA, 0x33, KISS_FEND};
     writeAll(second.master, second_packet);

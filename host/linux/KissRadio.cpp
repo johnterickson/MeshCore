@@ -248,6 +248,9 @@ void KissRadio::processFrame() {
   } else if (response == HW_RESP(HW_CMD_GET_NOISE_FLOOR) && frame_len_ >= 4) {
     noise_floor_ = static_cast<int16_t>(static_cast<uint16_t>(frame_[2]) |
                                         (static_cast<uint16_t>(frame_[3]) << 8));
+  } else if ((response == HW_RESP(HW_CMD_SET_RADIO_GAIN) ||
+              response == HW_RESP(HW_CMD_GET_RADIO_GAIN)) && frame_len_ >= 3) {
+    radio_gain_flags_ = frame_[2] & RADIO_GAIN_MASK;
   }
 }
 
@@ -337,6 +340,27 @@ void KissRadio::setParams(float freq, float bw, uint8_t sf, uint8_t cr) {
 void KissRadio::setTxPower(int8_t power_dbm) {
   config_.tx_power = static_cast<uint8_t>(power_dbm);
   sendHardwareCommand(HW_CMD_SET_TX_POWER, &config_.tx_power, 1);
+}
+
+bool KissRadio::setRadioGainFlag(uint8_t flag, bool enable) {
+  const uint8_t previous = radio_gain_flags_;
+  if (enable) radio_gain_flags_ |= flag;
+  else radio_gain_flags_ &= static_cast<uint8_t>(~flag);
+  if (sendHardwareCommand(HW_CMD_SET_RADIO_GAIN, &radio_gain_flags_, 1)) return true;
+  radio_gain_flags_ = previous;
+  return false;
+}
+
+bool KissRadio::setRxBoostedGainMode(bool enable) {
+  return setRadioGainFlag(RADIO_GAIN_RX_BOOSTED, enable);
+}
+
+bool KissRadio::setFemRxGainEnabled(bool enable) {
+  return setRadioGainFlag(RADIO_GAIN_FEM_RX, enable);
+}
+
+bool KissRadio::setFemTxGainEnabled(bool enable) {
+  return setRadioGainFlag(RADIO_GAIN_FEM_TX, enable);
 }
 
 void KissRadio::resetStats() {

@@ -16,6 +16,16 @@ static constexpr size_t TEST_PARTIAL_WRITE_CHUNK = 2;
 static constexpr int TEST_PARTIAL_WRITE_FLUSH_LOOPS = 3;
 static constexpr uint8_t TEST_SNR = 8;
 static constexpr uint8_t TEST_RSSI = 200;
+static uint8_t test_radio_gain_flags = 0;
+
+uint8_t setTestRadioGain(uint8_t flags) {
+  test_radio_gain_flags = flags;
+  return test_radio_gain_flags;
+}
+
+uint8_t getTestRadioGain() {
+  return test_radio_gain_flags;
+}
 
 class BlockingStream : public Stream {
 public:
@@ -199,6 +209,23 @@ TEST_F(KissModemFixture, PingResponseKeepsStandardKissFraming) {
   modem.loop();
 
   const std::vector<uint8_t> expected = {KISS_FEND, KISS_CMD_SETHARDWARE, HW_RESP(HW_CMD_PING), KISS_FEND};
+  EXPECT_EQ(serial.writesSnapshot(), expected);
+}
+
+TEST_F(KissModemFixture, RadioGainCommandsApplyAndReportActualFlags) {
+  test_radio_gain_flags = 0;
+  modem.setRadioGainCallback(setTestRadioGain);
+  modem.setGetRadioGainCallback(getTestRadioGain);
+  serial.pushRx({KISS_FEND, KISS_CMD_SETHARDWARE, HW_CMD_SET_RADIO_GAIN,
+                 RADIO_GAIN_RX_BOOSTED | RADIO_GAIN_FEM_RX, KISS_FEND,
+                 KISS_FEND, KISS_CMD_SETHARDWARE, HW_CMD_GET_RADIO_GAIN, KISS_FEND});
+  modem.loop();
+
+  const std::vector<uint8_t> expected = {
+      KISS_FEND, KISS_CMD_SETHARDWARE, HW_RESP(HW_CMD_SET_RADIO_GAIN),
+      RADIO_GAIN_RX_BOOSTED | RADIO_GAIN_FEM_RX, KISS_FEND,
+      KISS_FEND, KISS_CMD_SETHARDWARE, HW_RESP(HW_CMD_GET_RADIO_GAIN),
+      RADIO_GAIN_RX_BOOSTED | RADIO_GAIN_FEM_RX, KISS_FEND};
   EXPECT_EQ(serial.writesSnapshot(), expected);
 }
 

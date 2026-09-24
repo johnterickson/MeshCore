@@ -18,3 +18,19 @@ mesh::LocalIdentity radio_new_identity() {
 void LinuxBoard::reboot() {
   std::exit(0);
 }
+
+bool LinuxBoard::setLoRaFemLnaEnabled(bool enable) {
+  return radio_driver.setFemRxGainEnabled(enable);
+}
+
+bool LinuxBoard::isLoRaFemLnaEnabled() const {
+  return radio_driver.isFemRxGainEnabled();
+}
+
+bool LinuxBoard::setLoRaFemPaGainEnabled(bool enable) {
+  return radio_driver.setFemTxGainEnabled(enable);
+}
+
+bool LinuxBoard::isLoRaFemPaGainEnabled() const {
+  return radio_driver.isFemTxGainEnabled();
+}

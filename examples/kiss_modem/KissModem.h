@@ -62,6 +62,13 @@
 #define HW_CMD_REBOOT            0x18
 #define HW_CMD_SET_SIGNAL_REPORT 0x19
 #define HW_CMD_GET_SIGNAL_REPORT 0x1A
+#define HW_CMD_SET_RADIO_GAIN    0x1B
+#define HW_CMD_GET_RADIO_GAIN    0x1C
+
+#define RADIO_GAIN_RX_BOOSTED    0x01
+#define RADIO_GAIN_FEM_RX        0x02
+#define RADIO_GAIN_FEM_TX        0x04
+#define RADIO_GAIN_MASK          (RADIO_GAIN_RX_BOOSTED | RADIO_GAIN_FEM_RX | RADIO_GAIN_FEM_TX)
 
 /* Response code = command code | 0x80.  Generic / unsolicited use 0xF0+. */
 #define HW_RESP(cmd)             ((cmd) | 0x80)
@@ -82,10 +89,12 @@
 #define HW_ERR_ENCRYPT_FAILED    0x06
 #define HW_ERR_TX_BUSY           0x07
 
-#define KISS_FIRMWARE_VERSION 1
+#define KISS_FIRMWARE_VERSION 2
 
 typedef void (*SetRadioCallback)(float freq, float bw, uint8_t sf, uint8_t cr);
 typedef void (*SetTxPowerCallback)(uint8_t power);
+typedef uint8_t (*SetRadioGainCallback)(uint8_t flags);
+typedef uint8_t (*GetRadioGainCallback)();
 typedef float (*GetCurrentRssiCallback)();
 typedef void (*GetStatsCallback)(uint32_t* rx, uint32_t* tx, uint32_t* errors);
 
@@ -134,6 +143,8 @@ class KissModem {
 
   SetRadioCallback _setRadioCallback;
   SetTxPowerCallback _setTxPowerCallback;
+  SetRadioGainCallback _setRadioGainCallback;
+  GetRadioGainCallback _getRadioGainCallback;
   GetCurrentRssiCallback _getCurrentRssiCallback;
   GetStatsCallback _getStatsCallback;
 
@@ -192,6 +203,8 @@ class KissModem {
   void handleGetDeviceName();
   void handleSetSignalReport(const uint8_t* data, uint16_t len);
   void handleGetSignalReport();
+  void handleSetRadioGain(const uint8_t* data, uint16_t len);
+  void handleGetRadioGain();
 
 public:
   KissModem(Stream& serial, mesh::LocalIdentity& identity, mesh::RNG& rng,
@@ -202,6 +215,8 @@ public:
 
   void setRadioCallback(SetRadioCallback cb) { _setRadioCallback = cb; }
   void setTxPowerCallback(SetTxPowerCallback cb) { _setTxPowerCallback = cb; }
+  void setRadioGainCallback(SetRadioGainCallback cb) { _setRadioGainCallback = cb; }
+  void setGetRadioGainCallback(GetRadioGainCallback cb) { _getRadioGainCallback = cb; }
   void setGetCurrentRssiCallback(GetCurrentRssiCallback cb) { _getCurrentRssiCallback = cb; }
   void setGetStatsCallback(GetStatsCallback cb) { _getStatsCallback = cb; }
 

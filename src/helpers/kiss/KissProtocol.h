@@ -58,6 +58,13 @@
 #define HW_CMD_REBOOT            0x18
 #define HW_CMD_SET_SIGNAL_REPORT 0x19
 #define HW_CMD_GET_SIGNAL_REPORT 0x1A
+#define HW_CMD_SET_RADIO_GAIN    0x1B
+#define HW_CMD_GET_RADIO_GAIN    0x1C
+
+#define RADIO_GAIN_RX_BOOSTED    0x01
+#define RADIO_GAIN_FEM_RX        0x02
+#define RADIO_GAIN_FEM_TX        0x04
+#define RADIO_GAIN_MASK          (RADIO_GAIN_RX_BOOSTED | RADIO_GAIN_FEM_RX | RADIO_GAIN_FEM_TX)
 
 #define HW_RESP(cmd)             ((cmd) | 0x80)
 #define HW_RESP_OK               0xF0
@@ -73,7 +80,7 @@
 #define HW_ERR_ENCRYPT_FAILED    0x06
 #define HW_ERR_TX_BUSY           0x07
 
-#define KISS_FIRMWARE_VERSION 1
+#define KISS_FIRMWARE_VERSION 2
 
 struct KissRadioConfig {
   uint32_t freq_hz;

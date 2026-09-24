@@ -118,6 +118,8 @@ MeshCore-specific functionality uses the standard KISS SetHardware command. The 
 | Reboot          | `0x18` | -                                        |
 | SetSignalReport | `0x19` | Enable (1): 0x00=disable, nonzero=enable |
 | GetSignalReport | `0x1A` | -                                        |
+| SetRadioGain    | `0x1B` | Gain flags (1)                           |
+| GetRadioGain    | `0x1C` | -                                        |
 
 ### Response Sub-commands (TNC to Host)
 
@@ -147,6 +149,8 @@ Response codes use the high-bit convention: `response = command | 0x80`. Generic
 | DeviceName   | `0x96` | Name (variable, UTF-8)                  |
 | Pong         | `0x97` | -                                       |
 | SignalReport | `0x9A` | Status (1): 0x00=disabled, 0x01=enabled |
+| RadioGainSet | `0x9B` | Actual gain flags (1)                   |
+| RadioGain    | `0x9C` | Actual gain flags (1)                   |
 | OK           | `0xF0` | -                                       |
 | Error        | `0xF1` | Error code (1)                          |
 | TxDone       | `0xF8` | Result (1): 0x00=failed, 0x01=success   |
@@ -191,6 +195,20 @@ All values little-endian.
 |----------|--------|------------------|
 | Version  | 1 byte | Firmware version |
 | Reserved | 1 byte | Always 0         |
+
+Protocol version 2 adds the SetRadioGain and GetRadioGain commands.
+
+### Radio Gain (SetRadioGain / RadioGain responses)
+
+The one-byte value is a bitmask:
+
+| Bit | Value  | Description                         |
+|-----|--------|-------------------------------------|
+| 0   | `0x01` | Internal radio boosted RX gain      |
+| 1   | `0x02` | External FEM RX gain / LNA          |
+| 2   | `0x04` | External FEM software TX gain       |
+
+SetRadioGain returns the actual state after applying the requested flags. Unsupported controls remain clear in the response. KISS firmware starts with the board build's internal boosted-gain setting, external FEM RX requested on, and external FEM TX gain off, matching repeater defaults. Board-specific transmit hooks may still enable a fixed external PA independently of bit 2.
 
 ### Encrypted (Encrypted response)
 

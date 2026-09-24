@@ -19,6 +19,12 @@ public:
   uint8_t getStartupReason() const override { return BD_STARTUP_NORMAL; }
   bool isExternalPowered() override { return true; }
   uint16_t getBootVoltage() override { return 5000; }
+  bool setLoRaFemLnaEnabled(bool enable) override;
+  bool canControlLoRaFemLna() const override { return true; }
+  bool isLoRaFemLnaEnabled() const override;
+  bool setLoRaFemPaGainEnabled(bool enable) override;
+  bool canControlLoRaFemPaGain() const override { return true; }
+  bool isLoRaFemPaGainEnabled() const override;
 };
 
 extern LinuxBoard board;

@@ -193,6 +193,31 @@ TEST_F(KissRadioTest, SendsRadioParametersAndTxPowerConsecutively) {
   EXPECT_TRUE(radio.startSendRaw(packet, sizeof(packet)));
 }
 
+TEST_F(KissRadioTest, SendsRepeaterGainPreferencesToModem) {
+  KissRadio radio(sockets[0]);
+
+  EXPECT_TRUE(radio.setRxBoostedGainMode(true));
+  EXPECT_TRUE(radio.setFemRxGainEnabled(true));
+  EXPECT_TRUE(radio.setFemTxGainEnabled(false));
+
+  EXPECT_EQ(readBytes(sockets[1]), (std::vector<uint8_t>{
+      KISS_FEND, KISS_CMD_SETHARDWARE, HW_CMD_SET_RADIO_GAIN,
+      RADIO_GAIN_RX_BOOSTED, KISS_FEND,
+      KISS_FEND, KISS_CMD_SETHARDWARE, HW_CMD_SET_RADIO_GAIN,
+      RADIO_GAIN_RX_BOOSTED | RADIO_GAIN_FEM_RX, KISS_FEND,
+      KISS_FEND, KISS_CMD_SETHARDWARE, HW_CMD_SET_RADIO_GAIN,
+      RADIO_GAIN_RX_BOOSTED | RADIO_GAIN_FEM_RX, KISS_FEND}));
+  EXPECT_TRUE(radio.getRxBoostedGainMode());
+  EXPECT_TRUE(radio.isFemRxGainEnabled());
+  EXPECT_FALSE(radio.isFemTxGainEnabled());
+
+  writeBytes(sockets[1], {KISS_FEND, KISS_CMD_SETHARDWARE,
+                          HW_RESP(HW_CMD_SET_RADIO_GAIN), RADIO_GAIN_RX_BOOSTED, KISS_FEND});
+  radio.loop();
+  EXPECT_TRUE(radio.getRxBoostedGainMode());
+  EXPECT_FALSE(radio.isFemRxGainEnabled());
+}
+
 } // namespace
 
 int main(int argc, char** argv) {

@@ -2,6 +2,7 @@
 #include <target.h>
 #include <helpers/ArduinoHelpers.h>
 #include <helpers/IdentityStore.h>
+#include <helpers/RadioSettings.h>
 #include "KissModem.h"
 
 #if defined(NRF52_PLATFORM)
@@ -65,6 +66,21 @@ void onSetTxPower(uint8_t power) {
   radio_driver.setTxPower(power);
 }
 
+uint8_t getRadioGainFlags() {
+  uint8_t flags = 0;
+  if (radio_driver.getRxBoostedGainMode()) flags |= RADIO_GAIN_RX_BOOSTED;
+  if (board.isLoRaFemLnaEnabled()) flags |= RADIO_GAIN_FEM_RX;
+  if (board.isLoRaFemPaGainEnabled()) flags |= RADIO_GAIN_FEM_TX;
+  return flags;
+}
+
+uint8_t onSetRadioGain(uint8_t flags) {
+  radio_driver.setRxBoostedGainMode((flags & RADIO_GAIN_RX_BOOSTED) != 0);
+  board.setLoRaFemLnaEnabled((flags & RADIO_GAIN_FEM_RX) != 0);
+  board.setLoRaFemPaGainEnabled((flags & RADIO_GAIN_FEM_TX) != 0);
+  return getRadioGainFlags();
+}
+
 float onGetCurrentRssi() {
   return radio_driver.getCurrentRSSI();
 }
@@ -83,6 +99,10 @@ void setup() {
   }
 
   radio_driver.begin();
+
+  uint8_t default_gain_flags = RADIO_GAIN_FEM_RX;
+  if (mesh::defaultRxBoostedGain()) default_gain_flags |= RADIO_GAIN_RX_BOOSTED;
+  onSetRadioGain(default_gain_flags);
 
   rng.begin(radio_driver.getRngSeed());
   loadOrCreateIdentity();
@@ -122,6 +142,8 @@ void setup() {
 
   modem->setRadioCallback(onSetRadio);
   modem->setTxPowerCallback(onSetTxPower);
+  modem->setRadioGainCallback(onSetRadioGain);
+  modem->setGetRadioGainCallback(getRadioGainFlags);
   modem->setGetCurrentRssiCallback(onGetCurrentRssi);
   modem->setGetStatsCallback(onGetStats);
   modem->begin();

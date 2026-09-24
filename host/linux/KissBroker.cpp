@@ -160,7 +160,8 @@ void KissBroker::rememberPhysicalConfig(const std::vector<uint8_t>& frame) {
   uint16_t key = command;
   if (command == KISS_CMD_SETHARDWARE) {
     if (frame.size() < 2 || (frame[1] != HW_CMD_SET_RADIO && frame[1] != HW_CMD_SET_TX_POWER &&
-                             frame[1] != HW_CMD_SET_SIGNAL_REPORT)) return;
+                             frame[1] != HW_CMD_SET_SIGNAL_REPORT &&
+                             frame[1] != HW_CMD_SET_RADIO_GAIN)) return;
     key = static_cast<uint16_t>(0x100 | frame[1]);
   } else if (command < KISS_CMD_TXDELAY || command > KISS_CMD_FULLDUPLEX) {
     return;

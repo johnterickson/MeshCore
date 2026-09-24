@@ -18,6 +18,8 @@ KissModem::KissModem(Stream& serial, mesh::LocalIdentity& identity, mesh::RNG& r
   _tx_timer = 0;
   _setRadioCallback = nullptr;
   _setTxPowerCallback = nullptr;
+  _setRadioGainCallback = nullptr;
+  _getRadioGainCallback = nullptr;
   _getCurrentRssiCallback = nullptr;
   _getStatsCallback = nullptr;
   _config = {0, 0, 0, 0, 0};
@@ -381,6 +383,12 @@ void KissModem::handleHardwareCommand(uint8_t sub_cmd, const uint8_t* data, uint
     case HW_CMD_GET_SIGNAL_REPORT:
       handleGetSignalReport();
       break;
+    case HW_CMD_SET_RADIO_GAIN:
+      handleSetRadioGain(data, len);
+      break;
+    case HW_CMD_GET_RADIO_GAIN:
+      handleGetRadioGain();
+      break;
     default:
       writeHardwareError(HW_ERR_UNKNOWN_CMD);
       break;
@@ -731,4 +739,26 @@ void KissModem::handleSetSignalReport(const uint8_t* data, uint16_t len) {
 void KissModem::handleGetSignalReport() {
   uint8_t val = _signal_report_enabled ? 0x01 : 0x00;
   writeHardwareFrame(HW_RESP(HW_CMD_GET_SIGNAL_REPORT), &val, 1);
+}
+
+void KissModem::handleSetRadioGain(const uint8_t* data, uint16_t len) {
+  if (len < 1) {
+    writeHardwareError(HW_ERR_INVALID_LENGTH);
+    return;
+  }
+  if (!_setRadioGainCallback) {
+    writeHardwareError(HW_ERR_NO_CALLBACK);
+    return;
+  }
+  const uint8_t flags = _setRadioGainCallback(data[0] & RADIO_GAIN_MASK);
+  writeHardwareFrame(HW_RESP(HW_CMD_SET_RADIO_GAIN), &flags, 1);
+}
+
+void KissModem::handleGetRadioGain() {
+  if (!_getRadioGainCallback) {
+    writeHardwareError(HW_ERR_NO_CALLBACK);
+    return;
+  }
+  const uint8_t flags = _getRadioGainCallback();
+  writeHardwareFrame(HW_RESP(HW_CMD_GET_RADIO_GAIN), &flags, 1);
 }

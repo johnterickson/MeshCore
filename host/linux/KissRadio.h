@@ -39,8 +39,12 @@ public:
   void setDevice(const std::string& device, int baud = 115200);
   void setParams(float freq, float bw, uint8_t sf, uint8_t cr);
   void setTxPower(int8_t power_dbm);
-  bool setRxBoostedGainMode(bool) { return false; }
-  bool getRxBoostedGainMode() const { return false; }
+  bool setRxBoostedGainMode(bool enable);
+  bool getRxBoostedGainMode() const { return (radio_gain_flags_ & RADIO_GAIN_RX_BOOSTED) != 0; }
+  bool setFemRxGainEnabled(bool enable);
+  bool isFemRxGainEnabled() const { return (radio_gain_flags_ & RADIO_GAIN_FEM_RX) != 0; }
+  bool setFemTxGainEnabled(bool enable);
+  bool isFemTxGainEnabled() const { return (radio_gain_flags_ & RADIO_GAIN_FEM_TX) != 0; }
   bool configSideDetectors(const uint8_t[], uint8_t, float) { return false; }
   uint32_t getPacketsRecv() const { return packets_recv_; }
   uint32_t getPacketsSent() const { return packets_sent_; }
@@ -65,6 +69,7 @@ private:
   void flushOutput();
   bool sendCommand(uint8_t command, const uint8_t* data, size_t len);
   bool sendHardwareCommand(uint8_t command, const uint8_t* data, size_t len);
+  bool setRadioGainFlag(uint8_t flag, bool enable);
 
   std::string device_;
   int baud_;
@@ -85,6 +90,7 @@ private:
   TxState tx_state_ = TxState::Idle;
 
   KissRadioConfig config_{869618000, 62500, 8, 8, 22};
+  uint8_t radio_gain_flags_ = 0;
   int noise_floor_ = -120;
   float last_rssi_ = 0.0f;
   float last_snr_ = 0.0f;
