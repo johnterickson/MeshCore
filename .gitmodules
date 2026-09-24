@@ -1,0 +1,4 @@
+[submodule "host/linux/MeshCoreRPI"]
+	path = host/linux/MeshCoreRPI
+	url = https://github.com/johnterickson/MeshCoreRPI.git
+	branch = main
