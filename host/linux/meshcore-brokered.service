@@ -1,0 +1,21 @@
+[Unit]
+Description=MeshCore brokered native roles
+
+[Service]
+Type=simple
+User=pi
+Group=pi
+SupplementaryGroups=dialout
+WorkingDirectory=/home/pi/MeshCore.johnterickson
+Environment=HOME=/home/pi
+Environment=MESHCORE_DATA_ROOT=/home/pi/.local/share
+EnvironmentFile=-/etc/default/meshcore-brokered
+Environment=MESHCORE_ROOM_COUNT=2
+Environment=MESHCORE_COMPANION_COUNT=2
+ExecStart=/usr/bin/bash /home/pi/MeshCore.johnterickson/host/linux/run_brokered.sh /dev/serial/by-id/usb-Espressif_USB_JTAG_serial_debug_unit_B0:A6:04:C6:6C:FC-if00
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=20
+
+[Install]
+WantedBy=multi-user.target

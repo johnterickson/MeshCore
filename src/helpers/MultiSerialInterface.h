@@ -163,18 +163,18 @@ public:
       return 0;
     }
 
-    // write frame to all enabled interfaces
-    bool allSuccessful = true;
+    // write frame to all connected interfaces
+    bool wroteFrame = false;
     for(auto iface : _interfaces){
-      if(iface.instance && iface.instance->isEnabled()){
+      if(iface.instance && iface.instance->isEnabled() && iface.instance->isConnected()){
         if(iface.instance->writeFrame(src, len) != len){
-          allSuccessful = false;
+          return 0;
         }
+        wroteFrame = true;
       }
     }
 
-    // report success if all writes completed successfully
-    return allSuccessful ? len : 0; 
+    return wroteFrame ? len : 0;
   }
 
   size_t checkRecvFrame(uint8_t dest[]) override {
