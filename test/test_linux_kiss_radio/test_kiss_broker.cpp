@@ -15,6 +15,7 @@
 #include <unistd.h>
 
 #include "KissBroker.h"
+#include <Packet.h>
 
 namespace {
 
@@ -188,7 +189,7 @@ TEST(KissBrokerTest, RoutesTrafficThroughRepeaterRfGateway) {
   const std::vector<uint8_t> local_packet = {KISS_FEND, KISS_CMD_DATA, 0x11, KISS_FEND};
   const std::vector<uint8_t> local_delivery = {
     KISS_FEND, KISS_CMD_DATA, 0x11, KISS_FEND,
-    KISS_FEND, KISS_CMD_SETHARDWARE, HW_RESP_RX_META, 12,
+    KISS_FEND, KISS_CMD_SETHARDWARE, HW_RESP_RX_META, mesh::Packet::snrFromDb(12.0f),
     static_cast<uint8_t>(-30), KISS_FEND};
   writeAll(room, local_packet);
   broker.loop();
@@ -225,7 +226,7 @@ TEST(KissBrokerTest, RoutesTrafficThroughRepeaterRfGateway) {
   EXPECT_EQ(readAvailable(repeater), tx_done);
   const std::vector<uint8_t> repeated_delivery = {
     KISS_FEND, KISS_CMD_DATA, 0x33, KISS_FEND,
-    KISS_FEND, KISS_CMD_SETHARDWARE, HW_RESP_RX_META, 12,
+    KISS_FEND, KISS_CMD_SETHARDWARE, HW_RESP_RX_META, mesh::Packet::snrFromDb(12.0f),
     static_cast<uint8_t>(-30), KISS_FEND};
   EXPECT_EQ(readAvailable(room), repeated_delivery);
   EXPECT_EQ(readAvailable(companion), repeated_delivery);

@@ -150,7 +150,7 @@ TEST_F(KissRadioTest, WithholdsReceivedDataUntilMetadataArrives) {
   ASSERT_EQ(radio.recvRaw(output.data(), output.size()), 2);
   EXPECT_EQ(output[0], 0x11);
   EXPECT_EQ(output[1], 0x22);
-  EXPECT_FLOAT_EQ(radio.getLastSNR(), -8.0f);
+  EXPECT_FLOAT_EQ(radio.getLastSNR(), -2.0f);
   EXPECT_FLOAT_EQ(radio.getLastRSSI(), -80.0f);
 }
 
@@ -168,7 +168,7 @@ TEST_F(KissRadioTest, ParsesFragmentedEscapedInput) {
   ASSERT_EQ(radio.recvRaw(output.data(), output.size()), 2);
   EXPECT_EQ(output[0], 0x33);
   EXPECT_EQ(output[1], KISS_FEND);
-  EXPECT_FLOAT_EQ(radio.getLastSNR(), 4.0f);
+  EXPECT_FLOAT_EQ(radio.getLastSNR(), 1.0f);
   EXPECT_FLOAT_EQ(radio.getLastRSSI(), -90.0f);
 }
 

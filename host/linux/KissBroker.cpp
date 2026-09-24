@@ -1,5 +1,7 @@
 #include "KissBroker.h"
 
+#include <Packet.h>
+
 #include <algorithm>
 #include <cerrno>
 #include <cctype>
@@ -441,7 +443,7 @@ void KissBroker::queueClient(size_t endpoint, const std::vector<uint8_t>& encode
 void KissBroker::deliverLocalTx(size_t sender, const std::vector<uint8_t>& encoded) {
   const std::vector<uint8_t> metadata = encodeFrame({
       KISS_CMD_SETHARDWARE, HW_RESP_RX_META,
-      static_cast<uint8_t>(12), static_cast<uint8_t>(-30)});
+  static_cast<uint8_t>(mesh::Packet::snrFromDb(12.0f)), static_cast<uint8_t>(-30)});
   for (size_t endpoint = 0; endpoint < endpoints_.size(); ++endpoint) {
     if (endpoint == sender) continue;
     queueClient(endpoint, encoded);

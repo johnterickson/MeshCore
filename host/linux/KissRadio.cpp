@@ -258,7 +258,7 @@ int KissRadio::recvRaw(uint8_t* bytes, int size) {
   if (static_cast<int>(packet.bytes.size()) > size) return 0;
 
   std::copy(packet.bytes.begin(), packet.bytes.end(), bytes);
-  last_snr_ = packet.snr;
+  last_snr_ = mesh::Packet::snrToDb(packet.snr);
   last_rssi_ = packet.rssi;
   ++packets_recv_;
   return static_cast<int>(packet.bytes.size());
