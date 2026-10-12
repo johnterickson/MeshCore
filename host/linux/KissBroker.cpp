@@ -157,8 +157,21 @@ void KissBroker::rememberPhysicalConfig(const std::vector<uint8_t>& frame) {
   const uint8_t command = frame[0] & 0x0F;
   uint16_t key = command;
   if (command == KISS_CMD_SETHARDWARE) {
-    if (frame.size() < 2 || (frame[1] != HW_CMD_SET_RADIO && frame[1] != HW_CMD_SET_TX_POWER &&
-                             frame[1] != HW_CMD_SET_SIGNAL_REPORT)) return;
+    if (frame.size() < 2) return;
+    if (frame[1] == HW_CMD_SET_FEM_STATE) {
+      if (frame.size() < 4) return;
+      for (uint8_t bit : {HW_FEM_RX_GAIN, HW_FEM_TX_GAIN}) {
+        if ((frame[2] & bit) == 0) continue;
+        physical_config_[static_cast<uint16_t>(0x200 | bit)] = encodeFrame({
+          KISS_CMD_SETHARDWARE, HW_CMD_SET_FEM_STATE, bit,
+          static_cast<uint8_t>(frame[3] & bit)
+        });
+      }
+      return;
+    }
+    if (frame[1] != HW_CMD_SET_RADIO && frame[1] != HW_CMD_SET_TX_POWER &&
+        frame[1] != HW_CMD_SET_SIGNAL_REPORT && frame[1] != HW_CMD_SET_AGC_RESET_INTERVAL &&
+        frame[1] != HW_CMD_SET_RX_BOOSTED_GAIN) return;
     key = static_cast<uint16_t>(0x100 | frame[1]);
   } else if (command < KISS_CMD_TXDELAY || command > KISS_CMD_FULLDUPLEX) {
     return;
@@ -360,7 +373,6 @@ void KissBroker::handlePhysicalFrame(const std::vector<uint8_t>& frame) {
     }
     if (response == HW_RESP_TX_DONE) {
       if (active_tx_endpoint_ >= 0) queueClient(static_cast<size_t>(active_tx_endpoint_), encoded);
-      if (frame.size() >= 3 && frame[2] != 0) echoActiveTxToPeers();
       active_tx_endpoint_ = -1;
       active_tx_frame_.clear();
       startNextTx();
@@ -394,6 +406,7 @@ void KissBroker::handleClientFrame(size_t endpoint, const std::vector<uint8_t>& 
     queueClient(endpoint, encodeFrame({KISS_CMD_SETHARDWARE, HW_RESP_TX_DONE, 0x01}));
     return;
   }
+  deliverLocalTx(endpoint, encoded);
   if (physical_fd_ < 0) {
     queueClient(endpoint, encodeFrame({KISS_CMD_SETHARDWARE, HW_RESP_TX_DONE, 0x00}));
     return;
@@ -441,17 +454,12 @@ void KissBroker::queueClient(size_t endpoint, const std::vector<uint8_t>& encode
 void KissBroker::deliverLocalTx(size_t sender, const std::vector<uint8_t>& encoded) {
   const std::vector<uint8_t> metadata = encodeFrame({
       KISS_CMD_SETHARDWARE, HW_RESP_RX_META,
-      static_cast<uint8_t>(12), static_cast<uint8_t>(-30)});
+      static_cast<uint8_t>(12 * 4), static_cast<uint8_t>(-30)});
   for (size_t endpoint = 0; endpoint < endpoints_.size(); ++endpoint) {
     if (endpoint == sender) continue;
     queueClient(endpoint, encoded);
     queueClient(endpoint, metadata);
   }
-}
-
-void KissBroker::echoActiveTxToPeers() {
-  if (active_tx_endpoint_ < 0 || active_tx_frame_.empty()) return;
-  deliverLocalTx(static_cast<size_t>(active_tx_endpoint_), active_tx_frame_);
 }
 
 void KissBroker::flushPhysical() {

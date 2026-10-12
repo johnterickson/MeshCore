@@ -1,5 +1,6 @@
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <array>
 #include <cerrno>
 #include <cstdint>
@@ -71,6 +72,10 @@ std::vector<uint8_t> readPhysicalAvailable(int fd) {
   }
 }
 
+bool containsBytes(const std::vector<uint8_t>& bytes, const std::vector<uint8_t>& expected) {
+  return std::search(bytes.begin(), bytes.end(), expected.begin(), expected.end()) != bytes.end();
+}
+
 int connectEndpoint(const std::string& path) {
   const int fd = socket(AF_UNIX, SOCK_STREAM, 0);
   if (fd < 0) return fd;
@@ -116,6 +121,27 @@ TEST(KissBrokerTest, ReconnectsPhysicalDeviceWithoutDisconnectingRole) {
     ASSERT_EQ(connect(role, reinterpret_cast<sockaddr*>(&address), sizeof(address)), 0);
     broker.loop();
 
+    const std::vector<uint8_t> agc_config = {
+      KISS_FEND, KISS_CMD_SETHARDWARE, HW_CMD_SET_AGC_RESET_INTERVAL, 28, 0, KISS_FEND};
+    const std::vector<uint8_t> fem_config = {
+      KISS_FEND, KISS_CMD_SETHARDWARE, HW_CMD_SET_FEM_STATE,
+      HW_FEM_RX_GAIN, HW_FEM_RX_GAIN, KISS_FEND};
+    const std::vector<uint8_t> fem_tx_config = {
+      KISS_FEND, KISS_CMD_SETHARDWARE, HW_CMD_SET_FEM_STATE,
+      HW_FEM_TX_GAIN, 0, KISS_FEND};
+    const std::vector<uint8_t> rx_gain_config = {
+      KISS_FEND, KISS_CMD_SETHARDWARE, HW_CMD_SET_RX_BOOSTED_GAIN, 1, KISS_FEND};
+    writeAll(role, agc_config);
+    writeAll(role, fem_config);
+    writeAll(role, fem_tx_config);
+    writeAll(role, rx_gain_config);
+    broker.loop();
+    const std::vector<uint8_t> initial_config = readPhysicalAvailable(first.master);
+    EXPECT_TRUE(containsBytes(initial_config, agc_config));
+    EXPECT_TRUE(containsBytes(initial_config, fem_config));
+    EXPECT_TRUE(containsBytes(initial_config, fem_tx_config));
+    EXPECT_TRUE(containsBytes(initial_config, rx_gain_config));
+
     const std::vector<uint8_t> first_packet = {KISS_FEND, KISS_CMD_DATA, 0x11, KISS_FEND};
     writeAll(first.master, first_packet);
     ASSERT_TRUE(broker.waitForEvent(100));
@@ -140,7 +166,11 @@ TEST(KissBrokerTest, ReconnectsPhysicalDeviceWithoutDisconnectingRole) {
 
     broker.loop();
     ASSERT_TRUE(broker.isPhysicalConnected()) << broker.getLastError();
-    drainPseudoTerminal(second.master);
+    const std::vector<uint8_t> replayed_config = readPhysicalAvailable(second.master);
+    EXPECT_TRUE(containsBytes(replayed_config, agc_config));
+    EXPECT_TRUE(containsBytes(replayed_config, fem_config));
+    EXPECT_TRUE(containsBytes(replayed_config, fem_tx_config));
+    EXPECT_TRUE(containsBytes(replayed_config, rx_gain_config));
 
     const std::vector<uint8_t> second_packet = {KISS_FEND, KISS_CMD_DATA, 0x33, KISS_FEND};
     writeAll(second.master, second_packet);
@@ -188,7 +218,7 @@ TEST(KissBrokerTest, RoutesTrafficThroughRepeaterRfGateway) {
   const std::vector<uint8_t> local_packet = {KISS_FEND, KISS_CMD_DATA, 0x11, KISS_FEND};
   const std::vector<uint8_t> local_delivery = {
     KISS_FEND, KISS_CMD_DATA, 0x11, KISS_FEND,
-    KISS_FEND, KISS_CMD_SETHARDWARE, HW_RESP_RX_META, 12,
+    KISS_FEND, KISS_CMD_SETHARDWARE, HW_RESP_RX_META, 48,
     static_cast<uint8_t>(-30), KISS_FEND};
   writeAll(room, local_packet);
   broker.loop();
@@ -215,20 +245,32 @@ TEST(KissBrokerTest, RoutesTrafficThroughRepeaterRfGateway) {
   writeAll(repeater, repeated_packet);
   broker.loop();
   EXPECT_EQ(readPhysicalAvailable(physical.master), repeated_packet);
-  EXPECT_TRUE(readAvailable(room).empty());
-  EXPECT_TRUE(readAvailable(companion).empty());
+  const std::vector<uint8_t> repeated_delivery = {
+    KISS_FEND, KISS_CMD_DATA, 0x33, KISS_FEND,
+    KISS_FEND, KISS_CMD_SETHARDWARE, HW_RESP_RX_META, 48,
+    static_cast<uint8_t>(-30), KISS_FEND};
+  EXPECT_EQ(readAvailable(room), repeated_delivery);
+  EXPECT_EQ(readAvailable(companion), repeated_delivery);
+
+  const std::vector<uint8_t> queued_packet = {KISS_FEND, KISS_CMD_DATA, 0x44, KISS_FEND};
+  const std::vector<uint8_t> queued_delivery = {
+    KISS_FEND, KISS_CMD_DATA, 0x44, KISS_FEND,
+    KISS_FEND, KISS_CMD_SETHARDWARE, HW_RESP_RX_META, 48,
+    static_cast<uint8_t>(-30), KISS_FEND};
+  writeAll(repeater, queued_packet);
+  broker.loop();
+  EXPECT_TRUE(readPhysicalAvailable(physical.master).empty());
+  EXPECT_EQ(readAvailable(room), queued_delivery);
+  EXPECT_EQ(readAvailable(companion), queued_delivery);
 
   const std::vector<uint8_t> tx_done = {
     KISS_FEND, KISS_CMD_SETHARDWARE, HW_RESP_TX_DONE, 0x01, KISS_FEND};
   writeAll(physical.master, tx_done);
   broker.loop();
   EXPECT_EQ(readAvailable(repeater), tx_done);
-  const std::vector<uint8_t> repeated_delivery = {
-    KISS_FEND, KISS_CMD_DATA, 0x33, KISS_FEND,
-    KISS_FEND, KISS_CMD_SETHARDWARE, HW_RESP_RX_META, 12,
-    static_cast<uint8_t>(-30), KISS_FEND};
-  EXPECT_EQ(readAvailable(room), repeated_delivery);
-  EXPECT_EQ(readAvailable(companion), repeated_delivery);
+  EXPECT_EQ(readPhysicalAvailable(physical.master), queued_packet);
+  EXPECT_TRUE(readAvailable(room).empty());
+  EXPECT_TRUE(readAvailable(companion).empty());
 
   close(companion);
   close(room);
@@ -237,6 +279,38 @@ TEST(KissBrokerTest, RoutesTrafficThroughRepeaterRfGateway) {
 
   close(physical.master);
   std::filesystem::remove_all(root);
+}
+
+TEST(KissBrokerTest, DeliversRepeaterTrafficLocallyWithoutPhysicalDevice) {
+  const std::string socket_dir = "/tmp/meshcore-kiss-disconnected-test-" + std::to_string(getpid());
+  std::filesystem::remove_all(socket_dir);
+  ASSERT_TRUE(std::filesystem::create_directories(socket_dir));
+
+  KissBroker broker("/dev/does-not-exist", 115200, socket_dir,
+                    {"repeater", "companion"});
+  ASSERT_TRUE(broker.begin()) << broker.getLastError();
+
+  const int repeater = connectEndpoint(socket_dir + "/repeater.sock");
+  const int companion = connectEndpoint(socket_dir + "/companion.sock");
+  ASSERT_GE(repeater, 0);
+  ASSERT_GE(companion, 0);
+  broker.loop();
+
+  const std::vector<uint8_t> packet = {KISS_FEND, KISS_CMD_DATA, 0x55, KISS_FEND};
+  const std::vector<uint8_t> delivery = {
+    KISS_FEND, KISS_CMD_DATA, 0x55, KISS_FEND,
+    KISS_FEND, KISS_CMD_SETHARDWARE, HW_RESP_RX_META, 48,
+    static_cast<uint8_t>(-30), KISS_FEND};
+  writeAll(repeater, packet);
+  broker.loop();
+
+  EXPECT_EQ(readAvailable(companion), delivery);
+  EXPECT_EQ(readAvailable(repeater), (std::vector<uint8_t>{
+    KISS_FEND, KISS_CMD_SETHARDWARE, HW_RESP_TX_DONE, 0x00, KISS_FEND}));
+
+  close(companion);
+  close(repeater);
+  std::filesystem::remove_all(socket_dir);
 }
 
 } // namespace

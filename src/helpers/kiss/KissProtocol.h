@@ -58,6 +58,13 @@
 #define HW_CMD_REBOOT            0x18
 #define HW_CMD_SET_SIGNAL_REPORT 0x19
 #define HW_CMD_GET_SIGNAL_REPORT 0x1A
+#define HW_CMD_GET_CAPABILITIES  0x1B
+#define HW_CMD_SET_AGC_RESET_INTERVAL 0x1C
+#define HW_CMD_GET_AGC_RESET_INTERVAL 0x1D
+#define HW_CMD_SET_FEM_STATE     0x1E
+#define HW_CMD_GET_FEM_STATE     0x1F
+#define HW_CMD_SET_RX_BOOSTED_GAIN 0x20
+#define HW_CMD_GET_RX_BOOSTED_GAIN 0x21
 
 #define HW_RESP(cmd)             ((cmd) | 0x80)
 #define HW_RESP_OK               0xF0
@@ -72,8 +79,20 @@
 #define HW_ERR_UNKNOWN_CMD       0x05
 #define HW_ERR_ENCRYPT_FAILED    0x06
 #define HW_ERR_TX_BUSY           0x07
+#define HW_ERR_UNSUPPORTED       0x08
 
-#define KISS_FIRMWARE_VERSION 1
+#define HW_CAP_AGC_RESET         (1UL << 0)
+#define HW_CAP_FEM_RX_GAIN       (1UL << 1)
+#define HW_CAP_FEM_TX_GAIN       (1UL << 2)
+#define HW_CAP_RX_BOOSTED_GAIN   (1UL << 3)
+
+#define HW_FEM_RX_GAIN           (1 << 0)
+#define HW_FEM_TX_GAIN           (1 << 1)
+
+#define KISS_AGC_RESET_MAX_SEC   1020
+#define KISS_AGC_RESET_STEP_SEC  4
+
+#define KISS_FIRMWARE_VERSION 2
 
 struct KissRadioConfig {
   uint32_t freq_hz;

@@ -61,7 +61,8 @@ TEST_F(KissRadioTest, DisablesModemTxSchedulingAtStartup) {
 
   EXPECT_EQ(readBytes(sockets[1]), (std::vector<uint8_t>{
       KISS_FEND, KISS_CMD_TXDELAY, 0x00, KISS_FEND,
-      KISS_FEND, KISS_CMD_FULLDUPLEX, 0x01, KISS_FEND}));
+      KISS_FEND, KISS_CMD_FULLDUPLEX, 0x01, KISS_FEND,
+      KISS_FEND, KISS_CMD_SETHARDWARE, HW_CMD_GET_CAPABILITIES, KISS_FEND}));
 }
 
 TEST_F(KissRadioTest, WaitsForSocketReadiness) {
@@ -99,7 +100,8 @@ TEST(KissRadioUnixSocketTest, ConnectsToBrokerEndpoint) {
   ASSERT_GE(client, 0);
   EXPECT_EQ(readBytes(client), (std::vector<uint8_t>{
       KISS_FEND, KISS_CMD_TXDELAY, 0x00, KISS_FEND,
-      KISS_FEND, KISS_CMD_FULLDUPLEX, 0x01, KISS_FEND}));
+      KISS_FEND, KISS_CMD_FULLDUPLEX, 0x01, KISS_FEND,
+      KISS_FEND, KISS_CMD_SETHARDWARE, HW_CMD_GET_CAPABILITIES, KISS_FEND}));
 
   close(client);
   close(server);
@@ -150,7 +152,7 @@ TEST_F(KissRadioTest, WithholdsReceivedDataUntilMetadataArrives) {
   ASSERT_EQ(radio.recvRaw(output.data(), output.size()), 2);
   EXPECT_EQ(output[0], 0x11);
   EXPECT_EQ(output[1], 0x22);
-  EXPECT_FLOAT_EQ(radio.getLastSNR(), -8.0f);
+  EXPECT_FLOAT_EQ(radio.getLastSNR(), -2.0f);
   EXPECT_FLOAT_EQ(radio.getLastRSSI(), -80.0f);
 }
 
@@ -168,7 +170,7 @@ TEST_F(KissRadioTest, ParsesFragmentedEscapedInput) {
   ASSERT_EQ(radio.recvRaw(output.data(), output.size()), 2);
   EXPECT_EQ(output[0], 0x33);
   EXPECT_EQ(output[1], KISS_FEND);
-  EXPECT_FLOAT_EQ(radio.getLastSNR(), 4.0f);
+  EXPECT_FLOAT_EQ(radio.getLastSNR(), 1.0f);
   EXPECT_FLOAT_EQ(radio.getLastRSSI(), -90.0f);
 }
 
@@ -191,6 +193,64 @@ TEST_F(KissRadioTest, SendsRadioParametersAndTxPowerConsecutively) {
   EXPECT_EQ(readBytes(sockets[1]), expected);
   const uint8_t packet[] = {0x42};
   EXPECT_TRUE(radio.startSendRaw(packet, sizeof(packet)));
+}
+
+TEST_F(KissRadioTest, AppliesPendingSettingsAfterCapabilityDiscovery) {
+  KissRadio radio(sockets[0]);
+  radio.begin();
+  readBytes(sockets[1]);
+
+  EXPECT_TRUE(radio.setAgcResetInterval(30));
+  EXPECT_TRUE(radio.setFemState(HW_FEM_RX_GAIN | HW_FEM_TX_GAIN, HW_FEM_RX_GAIN));
+  EXPECT_TRUE(radio.setRxBoostedGainMode(true));
+  EXPECT_TRUE(readBytes(sockets[1]).empty());
+
+  const uint32_t capabilities = HW_CAP_AGC_RESET | HW_CAP_FEM_RX_GAIN | HW_CAP_RX_BOOSTED_GAIN;
+  writeBytes(sockets[1], {
+      KISS_FEND, KISS_CMD_SETHARDWARE, HW_RESP(HW_CMD_GET_CAPABILITIES),
+      static_cast<uint8_t>(capabilities), 0x00, 0x00, 0x00, KISS_FEND});
+  radio.loop();
+
+  EXPECT_TRUE(radio.capabilitiesKnown());
+  EXPECT_EQ(radio.getCapabilities(), capabilities);
+  EXPECT_EQ(readBytes(sockets[1]), (std::vector<uint8_t>{
+      KISS_FEND, KISS_CMD_SETHARDWARE, HW_CMD_SET_AGC_RESET_INTERVAL, 28, 0, KISS_FEND,
+      KISS_FEND, KISS_CMD_SETHARDWARE, HW_CMD_SET_FEM_STATE,
+      HW_FEM_RX_GAIN, HW_FEM_RX_GAIN, KISS_FEND,
+      KISS_FEND, KISS_CMD_SETHARDWARE, HW_CMD_SET_RX_BOOSTED_GAIN, 1, KISS_FEND}));
+
+  writeBytes(sockets[1], {
+      KISS_FEND, KISS_CMD_SETHARDWARE, HW_RESP(HW_CMD_GET_AGC_RESET_INTERVAL), 28, 0, KISS_FEND,
+      KISS_FEND, KISS_CMD_SETHARDWARE, HW_RESP(HW_CMD_GET_FEM_STATE),
+      HW_FEM_RX_GAIN, HW_FEM_RX_GAIN, KISS_FEND,
+      KISS_FEND, KISS_CMD_SETHARDWARE, HW_RESP(HW_CMD_GET_RX_BOOSTED_GAIN), 1, KISS_FEND});
+  radio.loop();
+
+  EXPECT_EQ(radio.getAgcResetInterval(), 28);
+  EXPECT_EQ(radio.getFemCapabilities(), HW_FEM_RX_GAIN);
+  EXPECT_EQ(radio.getFemState(), HW_FEM_RX_GAIN);
+  EXPECT_TRUE(radio.getRxBoostedGainMode());
+  EXPECT_FALSE(radio.setFemState(HW_FEM_TX_GAIN, HW_FEM_TX_GAIN));
+}
+
+TEST_F(KissRadioTest, RefreshesModemNoiseFloorAndReceiveErrors) {
+  KissRadio radio(sockets[0]);
+
+  radio.triggerNoiseFloorCalibrate(0);
+  EXPECT_EQ(readBytes(sockets[1]), (std::vector<uint8_t>{
+      KISS_FEND, KISS_CMD_SETHARDWARE, HW_CMD_GET_NOISE_FLOOR, KISS_FEND,
+      KISS_FEND, KISS_CMD_SETHARDWARE, HW_CMD_GET_STATS, KISS_FEND}));
+
+  writeBytes(sockets[1], {
+      KISS_FEND, KISS_CMD_SETHARDWARE, HW_RESP(HW_CMD_GET_NOISE_FLOOR), 0xA6, 0xFF, KISS_FEND,
+      KISS_FEND, KISS_CMD_SETHARDWARE, HW_RESP(HW_CMD_GET_STATS),
+      3, 0, 0, 0, 2, 0, 0, 0, 5, 0, 0, 0, KISS_FEND});
+  radio.loop();
+
+  EXPECT_EQ(radio.getNoiseFloor(), -90);
+  EXPECT_EQ(radio.getPacketsRecvErrors(), 5u);
+  radio.resetStats();
+  EXPECT_EQ(radio.getPacketsRecvErrors(), 0u);
 }
 
 } // namespace

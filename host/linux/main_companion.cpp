@@ -98,7 +98,7 @@ int main(int argc, char** argv) {
     return 1;
   }
   store.begin();
-  the_mesh.begin(false);
+  the_mesh.begin();
   if (!name.empty()) {
     std::snprintf(the_mesh.getNodePrefs()->node_name,
                   sizeof(the_mesh.getNodePrefs()->node_name), "%s", name.c_str());

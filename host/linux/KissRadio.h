@@ -29,6 +29,7 @@ public:
   bool isSendComplete() override;
   void onSendFinished() override;
   bool isInRecvMode() const override;
+  void triggerNoiseFloorCalibrate(int threshold) override;
   int getNoiseFloor() const override { return noise_floor_; }
   float getLastRSSI() const override { return last_rssi_; }
   float getLastSNR() const override { return last_snr_; }
@@ -39,12 +40,21 @@ public:
   void setDevice(const std::string& device, int baud = 115200);
   void setParams(float freq, float bw, uint8_t sf, uint8_t cr);
   void setTxPower(int8_t power_dbm);
-  bool setRxBoostedGainMode(bool) { return false; }
-  bool getRxBoostedGainMode() const { return false; }
+  bool setAgcResetInterval(uint16_t seconds) override;
+  uint16_t getAgcResetInterval() const { return agc_reset_interval_sec_; }
+  bool setFemState(uint8_t apply_mask, uint8_t value_mask);
+  uint8_t getFemCapabilities() const { return fem_capabilities_; }
+  uint8_t getFemState() const { return fem_state_; }
+  bool setRxBoostedGainMode(bool enable);
+  bool getRxBoostedGainMode() const { return rx_boosted_gain_enabled_; }
+  bool capabilitiesKnown() const { return capabilities_known_; }
+  uint32_t getCapabilities() const { return capabilities_; }
   bool configSideDetectors(const uint8_t[], uint8_t, float) { return false; }
   uint32_t getPacketsRecv() const { return packets_recv_; }
   uint32_t getPacketsSent() const { return packets_sent_; }
-  uint32_t getPacketsRecvErrors() const { return packets_recv_errors_; }
+  uint32_t getPacketsRecvErrors() const {
+    return packets_recv_errors_ + (modem_recv_errors_ - modem_recv_errors_baseline_);
+  }
   void resetStats();
 
 private:
@@ -62,6 +72,7 @@ private:
   bool configureSerial(int baud);
   void consumeByte(uint8_t byte);
   void processFrame();
+  void applyPendingHardwareSettings();
   void flushOutput();
   bool sendCommand(uint8_t command, const uint8_t* data, size_t len);
   bool sendHardwareCommand(uint8_t command, const uint8_t* data, size_t len);
@@ -88,7 +99,24 @@ private:
   int noise_floor_ = -120;
   float last_rssi_ = 0.0f;
   float last_snr_ = 0.0f;
+  bool capabilities_known_ = false;
+  uint32_t capabilities_ = 0;
+  bool agc_reset_interval_known_ = false;
+  uint16_t agc_reset_interval_sec_ = 0;
+  bool agc_reset_interval_pending_ = false;
+  uint16_t pending_agc_reset_interval_sec_ = 0;
+  bool fem_state_known_ = false;
+  uint8_t fem_capabilities_ = 0;
+  uint8_t fem_state_ = 0;
+  uint8_t pending_fem_apply_mask_ = 0;
+  uint8_t pending_fem_value_mask_ = 0;
+  bool rx_boosted_gain_known_ = false;
+  bool rx_boosted_gain_enabled_ = false;
+  bool rx_boosted_gain_pending_ = false;
+  bool pending_rx_boosted_gain_enabled_ = false;
   uint32_t packets_recv_ = 0;
   uint32_t packets_sent_ = 0;
   uint32_t packets_recv_errors_ = 0;
+  uint32_t modem_recv_errors_ = 0;
+  uint32_t modem_recv_errors_baseline_ = 0;
 };

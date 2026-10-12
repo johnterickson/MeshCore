@@ -52,6 +52,7 @@ void KissRadio::begin() {
   const uint8_t full_duplex = 1;
   sendCommand(KISS_CMD_TXDELAY, &tx_delay, 1);
   sendCommand(KISS_CMD_FULLDUPLEX, &full_duplex, 1);
+  sendHardwareCommand(HW_CMD_GET_CAPABILITIES, nullptr, 0);
 }
 
 void KissRadio::setDevice(const std::string& device, int baud) {
@@ -248,6 +249,63 @@ void KissRadio::processFrame() {
   } else if (response == HW_RESP(HW_CMD_GET_NOISE_FLOOR) && frame_len_ >= 4) {
     noise_floor_ = static_cast<int16_t>(static_cast<uint16_t>(frame_[2]) |
                                         (static_cast<uint16_t>(frame_[3]) << 8));
+  } else if (response == HW_RESP(HW_CMD_GET_STATS) && frame_len_ >= 14) {
+    modem_recv_errors_ = static_cast<uint32_t>(frame_[10]) |
+                         (static_cast<uint32_t>(frame_[11]) << 8) |
+                         (static_cast<uint32_t>(frame_[12]) << 16) |
+                         (static_cast<uint32_t>(frame_[13]) << 24);
+  } else if (response == HW_RESP(HW_CMD_GET_CAPABILITIES) && frame_len_ >= 6) {
+    capabilities_ = static_cast<uint32_t>(frame_[2]) |
+                    (static_cast<uint32_t>(frame_[3]) << 8) |
+                    (static_cast<uint32_t>(frame_[4]) << 16) |
+                    (static_cast<uint32_t>(frame_[5]) << 24);
+    capabilities_known_ = true;
+    applyPendingHardwareSettings();
+  } else if (response == HW_RESP(HW_CMD_GET_AGC_RESET_INTERVAL) && frame_len_ >= 4) {
+    agc_reset_interval_sec_ = static_cast<uint16_t>(frame_[2]) |
+                              (static_cast<uint16_t>(frame_[3]) << 8);
+    agc_reset_interval_known_ = true;
+  } else if (response == HW_RESP(HW_CMD_GET_FEM_STATE) && frame_len_ >= 4) {
+    fem_capabilities_ = frame_[2] & (HW_FEM_RX_GAIN | HW_FEM_TX_GAIN);
+    fem_state_ = frame_[3] & fem_capabilities_;
+    fem_state_known_ = true;
+  } else if (response == HW_RESP(HW_CMD_GET_RX_BOOSTED_GAIN) && frame_len_ >= 3) {
+    rx_boosted_gain_enabled_ = frame_[2] != 0;
+    rx_boosted_gain_known_ = true;
+  }
+}
+
+void KissRadio::applyPendingHardwareSettings() {
+  if (capabilities_ & HW_CAP_AGC_RESET) {
+    if (agc_reset_interval_pending_) {
+      uint8_t data[2] = {
+        static_cast<uint8_t>(pending_agc_reset_interval_sec_),
+        static_cast<uint8_t>(pending_agc_reset_interval_sec_ >> 8)
+      };
+      sendHardwareCommand(HW_CMD_SET_AGC_RESET_INTERVAL, data, sizeof(data));
+    } else {
+      sendHardwareCommand(HW_CMD_GET_AGC_RESET_INTERVAL, nullptr, 0);
+    }
+  }
+
+  uint8_t supported_fem = 0;
+  if (capabilities_ & HW_CAP_FEM_RX_GAIN) supported_fem |= HW_FEM_RX_GAIN;
+  if (capabilities_ & HW_CAP_FEM_TX_GAIN) supported_fem |= HW_FEM_TX_GAIN;
+  const uint8_t fem_apply = pending_fem_apply_mask_ & supported_fem;
+  if (fem_apply != 0) {
+    const uint8_t data[2] = {fem_apply, static_cast<uint8_t>(pending_fem_value_mask_ & fem_apply)};
+    sendHardwareCommand(HW_CMD_SET_FEM_STATE, data, sizeof(data));
+  } else if (supported_fem != 0) {
+    sendHardwareCommand(HW_CMD_GET_FEM_STATE, nullptr, 0);
+  }
+
+  if (capabilities_ & HW_CAP_RX_BOOSTED_GAIN) {
+    if (rx_boosted_gain_pending_) {
+      const uint8_t enabled = pending_rx_boosted_gain_enabled_ ? 1 : 0;
+      sendHardwareCommand(HW_CMD_SET_RX_BOOSTED_GAIN, &enabled, 1);
+    } else {
+      sendHardwareCommand(HW_CMD_GET_RX_BOOSTED_GAIN, nullptr, 0);
+    }
   }
 }
 
@@ -258,7 +316,7 @@ int KissRadio::recvRaw(uint8_t* bytes, int size) {
   if (static_cast<int>(packet.bytes.size()) > size) return 0;
 
   std::copy(packet.bytes.begin(), packet.bytes.end(), bytes);
-  last_snr_ = packet.snr;
+  last_snr_ = static_cast<float>(packet.snr) / 4.0f;
   last_rssi_ = packet.rssi;
   ++packets_recv_;
   return static_cast<int>(packet.bytes.size());
@@ -305,11 +363,17 @@ bool KissRadio::isInRecvMode() const {
   return tx_state_ == TxState::Idle || tx_state_ == TxState::Complete || tx_state_ == TxState::Failed;
 }
 
+void KissRadio::triggerNoiseFloorCalibrate(int) {
+  if (tx_state_ != TxState::Idle) return;
+  sendHardwareCommand(HW_CMD_GET_NOISE_FLOOR, nullptr, 0);
+  sendHardwareCommand(HW_CMD_GET_STATS, nullptr, 0);
+}
+
 bool KissRadio::sendHardwareCommand(uint8_t command, const uint8_t* data, size_t len) {
   std::vector<uint8_t> payload;
   payload.reserve(len + 1);
   payload.push_back(command);
-  payload.insert(payload.end(), data, data + len);
+  if (len > 0) payload.insert(payload.end(), data, data + len);
   return sendCommand(KISS_CMD_SETHARDWARE, payload.data(), payload.size());
 }
 
@@ -339,10 +403,48 @@ void KissRadio::setTxPower(int8_t power_dbm) {
   sendHardwareCommand(HW_CMD_SET_TX_POWER, &config_.tx_power, 1);
 }
 
+bool KissRadio::setAgcResetInterval(uint16_t seconds) {
+  if (seconds > KISS_AGC_RESET_MAX_SEC) return false;
+  pending_agc_reset_interval_sec_ = seconds - (seconds % KISS_AGC_RESET_STEP_SEC);
+  agc_reset_interval_pending_ = true;
+  if (!capabilities_known_) return true;
+  if ((capabilities_ & HW_CAP_AGC_RESET) == 0) return false;
+  const uint8_t data[2] = {
+    static_cast<uint8_t>(pending_agc_reset_interval_sec_),
+    static_cast<uint8_t>(pending_agc_reset_interval_sec_ >> 8)
+  };
+  return sendHardwareCommand(HW_CMD_SET_AGC_RESET_INTERVAL, data, sizeof(data));
+}
+
+bool KissRadio::setFemState(uint8_t apply_mask, uint8_t value_mask) {
+  const uint8_t valid_mask = HW_FEM_RX_GAIN | HW_FEM_TX_GAIN;
+  if (apply_mask == 0 || (apply_mask & ~valid_mask) != 0) return false;
+  pending_fem_apply_mask_ |= apply_mask;
+  pending_fem_value_mask_ = (pending_fem_value_mask_ & ~apply_mask) | (value_mask & apply_mask);
+  if (!capabilities_known_) return true;
+
+  uint8_t supported = 0;
+  if (capabilities_ & HW_CAP_FEM_RX_GAIN) supported |= HW_FEM_RX_GAIN;
+  if (capabilities_ & HW_CAP_FEM_TX_GAIN) supported |= HW_FEM_TX_GAIN;
+  if ((apply_mask & ~supported) != 0) return false;
+  const uint8_t data[2] = {apply_mask, static_cast<uint8_t>(value_mask & apply_mask)};
+  return sendHardwareCommand(HW_CMD_SET_FEM_STATE, data, sizeof(data));
+}
+
+bool KissRadio::setRxBoostedGainMode(bool enable) {
+  pending_rx_boosted_gain_enabled_ = enable;
+  rx_boosted_gain_pending_ = true;
+  if (!capabilities_known_) return true;
+  if ((capabilities_ & HW_CAP_RX_BOOSTED_GAIN) == 0) return false;
+  const uint8_t enabled = enable ? 1 : 0;
+  return sendHardwareCommand(HW_CMD_SET_RX_BOOSTED_GAIN, &enabled, 1);
+}
+
 void KissRadio::resetStats() {
   packets_recv_ = 0;
   packets_sent_ = 0;
   packets_recv_errors_ = 0;
+  modem_recv_errors_baseline_ = modem_recv_errors_;
 }
 
 uint32_t KissRadio::getEstAirtimeFor(int len_bytes) {

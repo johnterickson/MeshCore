@@ -69,6 +69,8 @@ public:
 
   virtual void resetAGC() { }
 
+  virtual bool setAgcResetInterval(uint16_t seconds) { return false; }
+
   virtual bool isInRecvMode() const = 0;
 
   /**

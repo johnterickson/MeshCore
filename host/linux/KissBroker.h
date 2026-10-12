@@ -70,7 +70,6 @@ private:
   void queuePhysical(const std::vector<uint8_t>& encoded);
   void queueClient(size_t endpoint, const std::vector<uint8_t>& encoded);
   void deliverLocalTx(size_t sender, const std::vector<uint8_t>& encoded);
-  void echoActiveTxToPeers();
   void flushPhysical();
   void flushClients();
   void closeClient(Endpoint& endpoint);
